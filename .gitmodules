@@ -1,0 +1,8 @@
+[submodule "data"]
+	path = applications/dnn/data
+	url = https://github.com/sandialabs/cross-sim-data.git
+	shallow = true
+[submodule "pretrained_models"]
+	path = applications/dnn/pretrained_models
+	url = https://github.com/sandialabs/cross-sim-models.git
+	shallow = true
