@@ -93,13 +93,11 @@ print(f"  Unlearned: Overall={unl_overall:.1f}% Retain={unl_retain:.1f}% Forget=
 # ─── Hardware configurations to sweep ───
 hw_configs = [
     ('Digital\n(ideal)', None),  # placeholder for digital
-    ('8-bit\nweights', dict(cell_bits=8, prog_error=False, adc_bits=0)),
-    ('6-bit\nweights', dict(cell_bits=6, prog_error=False, adc_bits=0)),
-    ('4-bit\nweights', dict(cell_bits=4, prog_error=False, adc_bits=0)),
-    ('4-bit W\n+ SONOS', dict(cell_bits=4, prog_error=True, adc_bits=0)),
-    ('4-bit W\n+ 8-bit ADC', dict(cell_bits=4, prog_error=False, adc_bits=8)),
+    ('8-bit W\n+ 8-bit ADC', dict(cell_bits=8, prog_error=False, adc_bits=8)),
     ('4-bit W\n+ 4-bit ADC', dict(cell_bits=4, prog_error=False, adc_bits=4)),
-    ('4-bit W\n+ SONOS\n+ 4-bit ADC', dict(cell_bits=4, prog_error=True, adc_bits=4)),
+    ('4-bit W\n+ 4-bit ADC\n+ SONOS', dict(cell_bits=4, prog_error=True, adc_bits=4)),
+    ('3-bit W\n+ 3-bit ADC\n+ SONOS', dict(cell_bits=3, prog_error=True, adc_bits=3)),
+    ('2-bit W\n+ 2-bit ADC\n+ SONOS', dict(cell_bits=2, prog_error=True, adc_bits=2)),
 ]
 
 def make_params(cfg):

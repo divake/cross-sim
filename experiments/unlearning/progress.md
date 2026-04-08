@@ -176,7 +176,62 @@ Redesigned hardware configs to show **progressive degradation** by:
 
 ---
 
-## Version 1.2 — (Next: Fix Plot 2 and beyond)
+## Version 1.2 — Plot 2 Fix: Complete Forgetting via LR Tuning (2026-04-08)
+
+### Problem
+With lr=0.05, forget accuracy plateaued at ~35% after 20 epochs. Model still partially recognized digit 7.
+
+### Fix
+Single change: **lr 0.05 → 0.1**. No other changes needed.
+
+### Results
+
+| Metric | Before Fix (lr=0.05) | After Fix (lr=0.1) | Target |
+|--------|---------------------|---------------------|--------|
+| Forget accuracy (digit 7) | 34.7% | **0.1%** | ~10% |
+| Retain accuracy (others) | 98.9% | **99.0%** | >97% |
+| Overall accuracy | 92.5% | **88.8%** | ~89% |
+| MIA accuracy | 0.514 | **0.520** | ~0.5 |
+
+### Key Findings
+- lr=0.05 was too conservative — model retained residual digit-7 features in conv layers
+- lr=0.1 with CosineAnnealingLR achieves complete forgetting by epoch 10
+- Retain accuracy actually IMPROVED slightly (99.0% vs 98.5% original) because the model now dedicates all capacity to 9 classes
+- MIA ≈ 0.5 confirms model treats forget data as unseen — true unlearning achieved
+
+---
+
+## Version 1.3 — Plot 3 Fix: Hardware Configs Aligned with Plot 1 (2026-04-08)
+
+### Problem
+Plot3 used old hardware configs (no ADC in most configs, `adc_bits=0`), same issue as original plot1.
+
+### Fix
+Replaced all hardware configs to match plot1's fixed progressive sweep:
+Digital → 8b W+ADC → 4b W+ADC → 4b+SONOS → 3b+SONOS → 2b+SONOS
+
+### Results
+
+| Config | Original (Retain/Forget) | Unlearned (Retain/Forget) |
+|--------|-------------------------|--------------------------|
+| Digital | 98.5% / 99.0% | 99.0% / 0.1% |
+| 8-bit W + 8-bit ADC | 95.2% / 87.9% | 89.0% / 0.2% |
+| 4-bit W + 4-bit ADC | 95.1% / 87.9% | 90.5% / 0.4% |
+| 4-bit + SONOS | 94.3% / 84.8% | 89.6% / 0.4% |
+| 3-bit + SONOS | 94.5% / 80.7% | 87.8% / 0.0% |
+| 2-bit + SONOS | 81.9% / 37.0% | 65.9% / 0.0% |
+
+### Key Findings
+- **Forgetting survives hardware deployment.** Forget accuracy stays 0-0.4% across ALL configs, even 2-bit.
+- Hardware degrades retain accuracy (99% → 66% at 2-bit) but does NOT restore forgotten knowledge.
+- Original model's digit-7 accuracy drops to 37% at 2-bit (ADC calibration issue, consistent with plot1 analysis).
+- Unlearning Effectiveness Score: Digital=98.9, 8b=88.9, 4b=90.2, 4b+SONOS=89.3, 3b=87.8, 2b=65.9.
+- Score formula: `Retain × (100 - Forget) / 100` — rewards high retain + low forget.
+- 2-bit score drops due to retain degradation, NOT forgetting failure.
+
+---
+
+## Version 1.4 — (Next: Plot 4 and beyond)
 - (To be filled)
 
 ---
