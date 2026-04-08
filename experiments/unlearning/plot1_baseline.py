@@ -71,20 +71,20 @@ print(f"  Digital accuracy: {digital_acc:.2f}%")
 
 # ─── Convert to analog with different hardware configs ───
 configs = {
-    'Ideal Analog\n(no errors)': dict(
-        cell_bits=0, prog_error=False, adc_bits=0
+    '8-bit W\n+ 8-bit ADC': dict(
+        cell_bits=8, prog_error=False, adc_bits=8,
     ),
-    'Weight Quant.\n(8-bit)': dict(
-        cell_bits=8, prog_error=False, adc_bits=0
+    '4-bit W\n+ 4-bit ADC': dict(
+        cell_bits=4, prog_error=False, adc_bits=4,
     ),
-    'Weight Quant.\n(4-bit)': dict(
-        cell_bits=4, prog_error=False, adc_bits=0
+    '4-bit W\n+ 4-bit ADC\n+ SONOS': dict(
+        cell_bits=4, prog_error=True, adc_bits=4,
     ),
-    'SONOS Device\n(4-bit weights)': dict(
-        cell_bits=4, prog_error=True, adc_bits=0
+    '3-bit W\n+ 3-bit ADC\n+ SONOS': dict(
+        cell_bits=3, prog_error=True, adc_bits=3,
     ),
-    'Full Non-ideal\n(4-bit W + 4-bit ADC\n+ SONOS)': dict(
-        cell_bits=4, prog_error=True, adc_bits=4
+    '2-bit W\n+ 2-bit ADC\n+ SONOS': dict(
+        cell_bits=2, prog_error=True, adc_bits=2,
     ),
 }
 
