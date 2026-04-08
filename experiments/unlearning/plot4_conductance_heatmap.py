@@ -1,15 +1,13 @@
 """
-Plot 4: Conductance Change Heatmap During Unlearning
-Visualizes which weights change (and by how much) when unlearning digit 7.
-Maps weight deltas to conductance deltas — showing the physical operation
-that would occur on a crossbar array.
+Plot 4: Physical Cost of Unlearning — Weight and Conductance Analysis
+Shows what changes in the model when forgetting digit 7, mapped to
+the physical reprogramming cost on analog crossbar hardware.
 """
 
 import torch
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 from matplotlib.colors import TwoSlopeNorm
 import os
 
@@ -46,6 +44,14 @@ weights_orig = []
 weights_unl = []
 delta_weights = []
 
+FORGET_CLASS = 7
+layer_short_names = {
+    '0.weight': 'Conv1\n(8x1x3x3)',
+    '2.weight': 'Conv2\n(16x8x3x3)',
+    '5.weight': 'FC1\n(100x12544)',
+    '7.weight': 'FC2\n(10x100)',
+}
+
 for (name_o, param_o), (name_u, param_u) in zip(
     net_original.named_parameters(), net_unlearned.named_parameters()
 ):
@@ -59,155 +65,142 @@ for (name_o, param_o), (name_u, param_u) in zip(
         delta_weights.append(dw)
 
         total = dw.size
-        changed = np.sum(np.abs(dw) > 1e-6)
+        changed = np.sum(np.abs(dw) > 0.01)
         pct = 100 * changed / total
         max_delta = np.max(np.abs(dw))
-        print(f"{name_o}: shape={w_o.shape}, changed={changed}/{total} ({pct:.1f}%), max|ΔW|={max_delta:.4f}")
+        print(f"{name_o}: shape={w_o.shape}, changed(|dW|>0.01)={changed}/{total} ({pct:.1f}%), max|ΔW|={max_delta:.4f}")
 
-# ─── Map to conductance space ───
-# CrossSim maps weights to conductances: G = (w - w_min) / (w_max - w_min) * (Gmax - Gmin) + Gmin
-# For balanced cores: G_pos = max(w, 0) * scale,  G_neg = max(-w, 0) * scale
-Gmin = 1e-5   # 10 μS (1/Rmax)
-Gmax = 1e-2   # 10 mS (1/Rmin)
+# ─── Conductance mapping ───
+Gmin = 1e-5   # 10 μS
+Gmax = 1e-2   # 10 mS
 
 def weight_to_conductance(w):
-    """Map weights to balanced (differential) conductance pair."""
-    w_norm = w / max(np.abs(w).max(), 1e-10)  # normalize to [-1, 1]
+    w_norm = w / max(np.abs(w).max(), 1e-10)
     G_pos = np.clip(w_norm, 0, None) * (Gmax - Gmin) + Gmin
     G_neg = np.clip(-w_norm, 0, None) * (Gmax - Gmin) + Gmin
     return G_pos, G_neg
 
-# ─── PLOT ───
-fig = plt.figure(figsize=(22, 14))
-
-# Top row: weight delta heatmaps for each layer
-# Bottom row: conductance statistics and analysis
-
-gs = gridspec.GridSpec(3, 4, hspace=0.45, wspace=0.35)
-
-# --- Top row: Delta-W heatmaps ---
-for i, (name, dw) in enumerate(zip(layer_names, delta_weights)):
-    ax = fig.add_subplot(gs[0, i])
-
-    # Reshape for visualization
-    dw_flat = dw.reshape(dw.shape[0], -1)  # (out_features, in_features_flat)
-
-    # Limit display size for readability
-    if dw_flat.shape[0] > 100:
-        dw_flat = dw_flat[:100, :100]
-    if dw_flat.shape[1] > 100:
-        dw_flat = dw_flat[:, :100]
-
-    vmax = max(np.abs(dw_flat).max(), 1e-6)
-    norm = TwoSlopeNorm(vmin=-vmax, vcenter=0, vmax=vmax)
-
-    im = ax.imshow(dw_flat, cmap='RdBu_r', norm=norm, aspect='auto')
-    plt.colorbar(im, ax=ax, shrink=0.8, label='ΔW')
-
-    short_name = name.replace('.weight', '').replace('0', 'Conv1').replace('2', 'Conv2').replace('5', 'FC1').replace('7', 'FC2')
-    ax.set_title(f'{short_name}\nΔW (unlearned - original)', fontsize=10, fontweight='bold')
-    ax.set_xlabel('Input dim', fontsize=9)
-    ax.set_ylabel('Output dim', fontsize=9)
-
-# --- Middle row: ΔG conductance change heatmaps ---
-for i, (name, w_o, w_u) in enumerate(zip(layer_names, weights_orig, weights_unl)):
-    ax = fig.add_subplot(gs[1, i])
-
-    G_pos_o, G_neg_o = weight_to_conductance(w_o)
-    G_pos_u, G_neg_u = weight_to_conductance(w_u)
-
-    # Net conductance change (both positive and negative arrays)
-    dG = (G_pos_u - G_neg_u) - (G_pos_o - G_neg_o)
-    dG_flat = dG.reshape(dG.shape[0], -1)
-
-    if dG_flat.shape[0] > 100:
-        dG_flat = dG_flat[:100, :100]
-    if dG_flat.shape[1] > 100:
-        dG_flat = dG_flat[:, :100]
-
-    vmax = max(np.abs(dG_flat).max(), 1e-10)
-    norm = TwoSlopeNorm(vmin=-vmax, vcenter=0, vmax=vmax)
-
-    im = ax.imshow(dG_flat, cmap='PiYG', norm=norm, aspect='auto')
-    plt.colorbar(im, ax=ax, shrink=0.8, label='ΔG (S)')
-
-    short_name = name.replace('.weight', '').replace('0', 'Conv1').replace('2', 'Conv2').replace('5', 'FC1').replace('7', 'FC2')
-    ax.set_title(f'{short_name}\nΔG conductance change', fontsize=10, fontweight='bold')
-    ax.set_xlabel('Input dim (col)', fontsize=9)
-    ax.set_ylabel('Output dim (row)', fontsize=9)
-
-# --- Bottom row: Analysis plots ---
-
-# Plot: Distribution of ΔW across all layers
-ax_hist = fig.add_subplot(gs[2, 0:2])
-colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12']
-for i, (name, dw) in enumerate(zip(layer_names, delta_weights)):
-    dw_vals = dw.flatten()
-    # Remove near-zero for clarity
-    short_name = name.replace('.weight', '').replace('0', 'Conv1').replace('2', 'Conv2').replace('5', 'FC1').replace('7', 'FC2')
-    ax_hist.hist(dw_vals, bins=100, alpha=0.6, color=colors[i], label=short_name, density=True)
-
-ax_hist.set_xlabel('ΔW (weight change)', fontsize=12)
-ax_hist.set_ylabel('Density', fontsize=12)
-ax_hist.set_title('Distribution of Weight Changes During Unlearning', fontsize=12, fontweight='bold')
-ax_hist.legend(fontsize=10)
-ax_hist.set_xlim([-0.5, 0.5])
-ax_hist.axvline(x=0, color='black', linestyle='--', alpha=0.5)
-ax_hist.grid(alpha=0.3)
-
-# Plot: Per-layer statistics — fraction of weights changed and energy cost proxy
-ax_stats = fig.add_subplot(gs[2, 2])
-
-layer_short = []
+# ─── Compute per-layer statistics ───
+short_names = []
 fracs_changed = []
 mean_abs_delta = []
-for name, dw in zip(layer_names, delta_weights):
-    short_name = name.replace('.weight', '').replace('0', 'Conv1').replace('2', 'Conv2').replace('5', 'FC1').replace('7', 'FC2')
-    layer_short.append(short_name)
+total_dG_per_layer = []
+total_params_per_layer = []
+
+for name, dw, w_o, w_u in zip(layer_names, delta_weights, weights_orig, weights_unl):
+    sname = layer_short_names.get(name, name)
+    short_names.append(sname)
     total = dw.size
+    total_params_per_layer.append(total)
     changed = np.sum(np.abs(dw) > 0.01)
     fracs_changed.append(100.0 * changed / total)
     mean_abs_delta.append(np.mean(np.abs(dw)))
 
-x_pos = np.arange(len(layer_short))
-bars = ax_stats.bar(x_pos, fracs_changed, color=colors, edgecolor='black', linewidth=0.5)
-ax_stats.set_xticks(x_pos)
-ax_stats.set_xticklabels(layer_short, fontsize=10)
-ax_stats.set_ylabel('% Weights Changed\n(|ΔW| > 0.01)', fontsize=11)
-ax_stats.set_title('Fraction of Weights Modified\nper Layer', fontsize=12, fontweight='bold')
-ax_stats.grid(axis='y', alpha=0.3)
-for bar, frac in zip(bars, fracs_changed):
-    ax_stats.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 1,
-                  f'{frac:.1f}%', ha='center', va='bottom', fontsize=10, fontweight='bold')
-
-# Plot: Write energy proxy (total |ΔG| per layer)
-ax_energy = fig.add_subplot(gs[2, 3])
-
-total_dG_per_layer = []
-for w_o, w_u in zip(weights_orig, weights_unl):
     G_pos_o, G_neg_o = weight_to_conductance(w_o)
     G_pos_u, G_neg_u = weight_to_conductance(w_u)
-    # Total conductance change = sum of |ΔG| for both pos and neg arrays
     total_dG = np.sum(np.abs(G_pos_u - G_pos_o)) + np.sum(np.abs(G_neg_u - G_neg_o))
     total_dG_per_layer.append(total_dG)
 
-# Normalize to relative scale
 total_dG_arr = np.array(total_dG_per_layer)
-total_dG_norm = total_dG_arr / total_dG_arr.sum() * 100
+total_dG_pct = total_dG_arr / total_dG_arr.sum() * 100
 
-bars = ax_energy.bar(x_pos, total_dG_norm, color=colors, edgecolor='black', linewidth=0.5)
-ax_energy.set_xticks(x_pos)
-ax_energy.set_xticklabels(layer_short, fontsize=10)
-ax_energy.set_ylabel('% of Total Write Energy', fontsize=11)
-ax_energy.set_title('Write Energy Distribution\n(proxy: Σ|ΔG|)', fontsize=12, fontweight='bold')
-ax_energy.grid(axis='y', alpha=0.3)
-for bar, pct in zip(bars, total_dG_norm):
-    ax_energy.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.5,
-                  f'{pct:.1f}%', ha='center', va='bottom', fontsize=10, fontweight='bold')
+# ─── PLOT: 2x2 clean layout ───
+fig, axes = plt.subplots(2, 2, figsize=(16, 12))
 
-plt.suptitle('Conductance Changes During Machine Unlearning — Physical View of Forgetting Digit 7',
+colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12']
+
+# --- Plot A: FC2 output layer heatmap (most interpretable) ---
+ax1 = axes[0, 0]
+# FC2 is 10x100: each row is an output class, each col is a hidden unit
+dw_fc2 = delta_weights[3]  # 7.weight, shape (10, 100)
+vmax = max(np.abs(dw_fc2).max(), 1e-6)
+norm = TwoSlopeNorm(vmin=-vmax, vcenter=0, vmax=vmax)
+im = ax1.imshow(dw_fc2, cmap='RdBu_r', norm=norm, aspect='auto')
+plt.colorbar(im, ax=ax1, shrink=0.8, label='ΔW')
+ax1.set_yticks(range(10))
+ax1.set_yticklabels([f'Class {i}' for i in range(10)], fontsize=9)
+ax1.set_xlabel('Hidden Unit (100 units)', fontsize=11)
+ax1.set_ylabel('Output Class', fontsize=11)
+ax1.set_title('Output Layer (FC2) Weight Changes\nWhich class connections changed?', fontsize=12, fontweight='bold')
+# Highlight row 7
+rect = plt.Rectangle((-0.5, FORGET_CLASS - 0.5), 100, 1, fill=False,
+                      edgecolor='red', linewidth=3)
+ax1.add_patch(rect)
+ax1.annotate('Digit 7\n(forgotten)', xy=(102, FORGET_CLASS), fontsize=10,
+             fontweight='bold', color='red', va='center')
+
+# --- Plot B: % weights modified per layer ---
+ax2 = axes[0, 1]
+x_pos = np.arange(len(short_names))
+bars = ax2.bar(x_pos, fracs_changed, color=colors, edgecolor='black', linewidth=0.5)
+ax2.set_xticks(x_pos)
+ax2.set_xticklabels(short_names, fontsize=9)
+ax2.set_ylabel('% Weights Changed (|ΔW| > 0.01)', fontsize=11)
+ax2.set_title('Fraction of Weights Modified per Layer', fontsize=12, fontweight='bold')
+ax2.set_ylim([0, 110])
+ax2.grid(axis='y', alpha=0.3)
+for bar, frac, total in zip(bars, fracs_changed, total_params_per_layer):
+    ax2.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 1.5,
+             f'{frac:.1f}%\n({total:,} params)', ha='center', va='bottom',
+             fontsize=9, fontweight='bold')
+
+# --- Plot C: Write energy distribution ---
+ax3 = axes[1, 0]
+bars = ax3.bar(x_pos, total_dG_pct, color=colors, edgecolor='black', linewidth=0.5)
+ax3.set_xticks(x_pos)
+ax3.set_xticklabels(short_names, fontsize=9)
+ax3.set_ylabel('% of Total Write Energy (Σ|ΔG|)', fontsize=11)
+ax3.set_title('Write Energy Distribution per Layer\n(Physical reprogramming cost)', fontsize=12, fontweight='bold')
+ax3.set_ylim([0, 110])
+ax3.grid(axis='y', alpha=0.3)
+for bar, pct in zip(bars, total_dG_pct):
+    ax3.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 1.5,
+             f'{pct:.1f}%', ha='center', va='bottom', fontsize=11, fontweight='bold')
+
+# --- Plot D: Stacked bar — weight change magnitude breakdown per layer ---
+ax4 = axes[1, 1]
+
+# Categorize weight changes per layer
+categories = {'No change\n(|ΔW| ≤ 0.01)': [], 'Small\n(0.01-0.05)': [],
+              'Medium\n(0.05-0.15)': [], 'Large\n(|ΔW| > 0.15)': []}
+
+for dw in delta_weights:
+    abs_dw = np.abs(dw.flatten())
+    total = len(abs_dw)
+    categories['No change\n(|ΔW| ≤ 0.01)'].append(100 * np.sum(abs_dw <= 0.01) / total)
+    categories['Small\n(0.01-0.05)'].append(100 * np.sum((abs_dw > 0.01) & (abs_dw <= 0.05)) / total)
+    categories['Medium\n(0.05-0.15)'].append(100 * np.sum((abs_dw > 0.05) & (abs_dw <= 0.15)) / total)
+    categories['Large\n(|ΔW| > 0.15)'].append(100 * np.sum(abs_dw > 0.15) / total)
+
+x_pos4 = np.arange(len(short_names))
+width4 = 0.6
+cat_colors = ['#95a5a6', '#f1c40f', '#e67e22', '#e74c3c']
+bottom = np.zeros(len(short_names))
+
+for (cat_name, cat_vals), col in zip(categories.items(), cat_colors):
+    vals = np.array(cat_vals)
+    bars = ax4.bar(x_pos4, vals, width4, bottom=bottom, color=col,
+                   edgecolor='black', linewidth=0.3, label=cat_name)
+    # Label significant segments
+    for i, (v, b) in enumerate(zip(vals, bottom)):
+        if v > 5:
+            ax4.text(x_pos4[i], b + v/2, f'{v:.0f}%', ha='center', va='center',
+                     fontsize=8, fontweight='bold')
+    bottom += vals
+
+ax4.set_xticks(x_pos4)
+ax4.set_xticklabels(short_names, fontsize=9)
+ax4.set_ylabel('% of Layer Parameters', fontsize=11)
+ax4.set_title('Weight Change Magnitude Breakdown\nHow much do weights actually change?',
+              fontsize=12, fontweight='bold')
+ax4.legend(fontsize=8, loc='upper right', ncol=2)
+ax4.set_ylim([0, 105])
+ax4.grid(axis='y', alpha=0.3)
+
+plt.suptitle('Physical Cost of Machine Unlearning on Analog Crossbar Hardware',
              fontsize=15, fontweight='bold', y=1.01)
 
+plt.tight_layout()
 plt.savefig('/ssd_4TB/divake/cross-sim/experiments/unlearning/plots/plot4_conductance_heatmap.png',
             dpi=200, bbox_inches='tight')
 print(f"\nPlot saved to experiments/unlearning/plots/plot4_conductance_heatmap.png")
