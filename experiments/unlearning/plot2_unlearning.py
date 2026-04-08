@@ -170,7 +170,7 @@ unlearn_net = copy.deepcopy(net)
 criterion = nn.CrossEntropyLoss()
 
 n_epochs = 20
-optimizer = torch.optim.SGD(unlearn_net.parameters(), lr=0.05, momentum=0.9, weight_decay=5e-4)
+optimizer = torch.optim.SGD(unlearn_net.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs)
 
 # Track metrics over epochs
@@ -184,7 +184,7 @@ history = {
 }
 
 print(f"\nUnlearning: fine-tuning on retain set only for {n_epochs} epochs...")
-print(f"  Optimizer: SGD(lr=0.05, momentum=0.9, wd=5e-4)")
+print(f"  Optimizer: SGD(lr=0.1, momentum=0.9, wd=5e-4)")
 print(f"  Scheduler: CosineAnnealingLR")
 
 for epoch in range(n_epochs):
